@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Soil Type Detection</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    .crop-card { transition: all 0.3s ease; }
+    .crop-card:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1),0 4px 6px -2px rgba(0,0,0,0.05); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center justify-center">
+  <div class="w-full max-w-4xl px-4 py-8">
+    <h1 class="text-4xl font-bold text-green-800 text-center mb-2">Soil Type Detection</h1>
+    <p class="text-gray-600 text-center mb-10">Upload or capture an image of soil to analyze its type and get crop recommendations</p>
+    <div class="flex flex-col md:flex-row gap-6 bg-white rounded-xl shadow-md p-8">
+      <!-- LEFT: Upload/Capture -->
+      <div class="w-full md:w-1/2 flex flex-col gap-3">
+        <div class="flex gap-3 mb-2">
+          <button id="startCamera" class="flex-1 bg-blue-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700"><i class="fas fa-camera"></i>Open Camera</button>
+          <button id="captureBtn" class="flex-1 bg-green-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700" disabled><i class="fas fa-camera-retro"></i>Capture Photo</button>
+        </div>
+        <video id="camera" class="w-full rounded-lg mb-2 hidden" autoplay playsinline></video>
+        <img id="imagePreview" class="w-full rounded-lg mb-2 hidden" />
+        <input type="file" id="fileInput" accept="image/*" class="mb-2 hidden"/>
+        <label for="fileInput" class="block bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg py-8 text-center cursor-pointer mb-2">
+          <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+          <div class="text-gray-600">Drag & drop soil image or <span class="text-blue-600 underline">click to browse</span></div>
+          <div class="text-xs text-gray-500 mt-1">Supports JPG, PNG (Max 5MB)</div>
+        </label>
+        <div class="flex gap-3 mt-2">
+          <button id="analyzeBtn" class="flex-1 bg-purple-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-purple-700" disabled>
+            <i class="fas fa-search"></i> Analyze Soil
+          </button>
+          <button id="resetBtn" class="flex-1 bg-gray-600 text-white font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-2 hover:bg-gray-700">
+            <i class="fas fa-redo"></i> Reset
+          </button>
+        </div>
+      </div>
+      <!-- RIGHT: Results -->
+      <div class="w-full md:w-1/2 flex items-center justify-center">
+        <div id="loadingSection" class="hidden w-full text-center">
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500 mb-4"></div>
+          <h3 class="text-lg font-medium text-gray-800 mb-1">Analyzing Soil Sample</h3>
+          <p class="text-gray-600">This may take a few seconds...</p>
+        </div>
+        <div id="resultSection" class="hidden w-full">
+          <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Analysis Results</h2>
+          <div class="mb-6 flex items-center">
+            <span id="soilTypeText" class="font-medium text-lg"></span>
+          </div>
+          <div id="fertilizerInfo"></div>
+          <div id="soilContentInfo"></div>
+          <h3 class="text-lg font-medium mb-2">Recommended Crops</h3>
+          <div id="cropsContainer" class="grid grid-cols-2 gap-3"></div>
+        </div>
+        <div id="emptyState" class="w-full text-center text-gray-500 py-12">
+          <i class="fas fa-seedling text-5xl mb-4"></i>
+          <h3 class="text-lg font-medium mb-1">No Soil Analyzed Yet</h3>
+          <p>Upload or capture an image of soil to begin analysis</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // DOM elements
+    const startCameraBtn = document.getElementById('startCamera');
+    const captureBtn = document.getElementById('captureBtn');
+    const camera = document.getElementById('camera');
+    const imagePreview = document.getElementById('imagePreview');
+    const fileInput = document.getElementById('fileInput');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const loadingSection = document.getElementById('loadingSection');
+    const resultSection = document.getElementById('resultSection');
+    const emptyState = document.getElementById('emptyState');
+    const soilTypeText = document.getElementById('soilTypeText');
+    const cropsContainer = document.getElementById('cropsContainer');
+    let stream = null, hasImage = false;
+
+    // Camera functionality
+    startCameraBtn.onclick = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        camera.srcObject = stream;
+        camera.classList.remove('hidden');
+        imagePreview.classList.add('hidden');
+        captureBtn.disabled = false;
+        startCameraBtn.disabled = true;
+      } catch (err) {
+        alert("Could not access the camera.");
+      }
+    };
+    captureBtn.onclick = () => {
+      if (!stream) return;
+      captureBtn.disabled = true;
+      const canvas = document.createElement('canvas');
+      canvas.width = camera.videoWidth;
+      canvas.height = camera.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+      imagePreview.src = canvas.toDataURL("image/jpeg");
+      imagePreview.classList.remove('hidden');
+      camera.classList.add('hidden');
+      hasImage = true;
+      analyzeBtn.disabled = false;
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      startCameraBtn.disabled = false;
+    };
+
+    // File upload + drag drop
+    fileInput.onchange = handleFileUpload;
+    document.querySelector('label[for=fileInput]').ondragover = e => (e.preventDefault(), e.dataTransfer.dropEffect = "copy");
+    document.querySelector('label[for=fileInput]').ondrop = e => {
+      e.preventDefault();
+      fileInput.files = e.dataTransfer.files;
+      handleFileUpload();
+    };
+
+    function handleFileUpload() {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        imagePreview.src = e.target.result;
+        imagePreview.classList.remove('hidden');
+        camera.classList.add('hidden');
+        hasImage = true;
+        analyzeBtn.disabled = false;
+      }
+      reader.readAsDataURL(file);
+    }
+
+    // Analyze Soil Button
+    analyzeBtn.onclick = async () => {
+      if (!hasImage && (!fileInput.files.length)) {
+        alert('Please select or capture an image.');
+        return;
+      }
+      loadingSection.classList.remove('hidden');
+      resultSection.classList.add('hidden');
+      emptyState.classList.add('hidden');
+
+      let blobOrFile;
+      if (fileInput.files.length) {
+        blobOrFile = fileInput.files[0];
+      } else {
+        // base64 to blob
+        const res = await fetch(imagePreview.src);
+        blobOrFile = await res.blob();
+      }
+      const formData = new FormData();
+      formData.append('image', blobOrFile, 'soil.jpg');
+      try {
+        const response = await fetch('/', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await response.json();
+        loadingSection.classList.add('hidden');
+        resultSection.classList.remove('hidden');
+        soilTypeText.textContent = data.predicted_class || "Unknown";
+
+        // Clear previous insertions before crops
+        let fertilizerOld = document.querySelector("#fertilizerInfo");
+        let soilContentOld = document.querySelector("#soilContentInfo");
+        if (fertilizerOld) fertilizerOld.remove();
+        if (soilContentOld) soilContentOld.remove();
+
+        // Show recommended fertilizers
+        let fertilizerHTML = "<b>Recommended Fertilizers:</b><ul>";
+        if (data.recommended_fertilizers && data.recommended_fertilizers.length > 0) {
+          data.recommended_fertilizers.forEach(fert => {
+            fertilizerHTML += `<li>${fert}</li>`;
+          });
+        }
+        fertilizerHTML += "</ul>";
+        let fertDiv = document.createElement("div");
+        fertDiv.id = "fertilizerInfo";
+        fertDiv.innerHTML = fertilizerHTML;
+        cropsContainer.insertAdjacentElement('beforebegin', fertDiv);
+
+        // Show ideal soil content
+        let contentHTML = "<b>Ideal Soil Content:</b><ul>";
+        if (data.soil_contents) {
+          Object.entries(data.soil_contents).forEach(([key, value]) => {
+            contentHTML += `<li>${key}: ${value}</li>`;
+          });
+        }
+        contentHTML += "</ul>";
+        let contDiv = document.createElement("div");
+        contDiv.id = "soilContentInfo";
+        contDiv.innerHTML = contentHTML;
+        cropsContainer.insertAdjacentElement('beforebegin', contDiv);
+
+        // Crop mapping (unchanged)
+        const cropRecs = {
+          "Black Soil": ["Cotton", "Wheat", "Sorghum", "Soybean", "Sunflower", "Pulses", "Sugarcane"],
+          "Red Soil": ["Groundnut", "Millets", "Potato", "Cotton", "Wheat"],
+          "Laterite Soil": ["Cashew", "Tea", "Coffee", "Pepper", "Pineapple"],
+          "Alluvial Soil": ["Rice", "Wheat", "Sugarcane", "Maize", "Jute"],
+          "Peat Soil": ["Vegetables", "Potatoes", "Carrots", "Cabbage"],
+          "Cinder Soil": ["Potatoes", "Onion", "Barley", "Apple"],
+          "Yellow Soil": ["Tea", "Peanuts", "Maize", "Cotton", "Potatoes"]
+        };
+
+        cropsContainer.innerHTML = '';
+        const crops = cropRecs[data.predicted_class];
+        if (crops && crops.length) {
+          crops.forEach(crop => {
+            const div = document.createElement('div');
+            div.className = "crop-card bg-white border border-gray-200 rounded-lg p-4 flex items-center gap-3";
+            div.innerHTML = `<i class="fas fa-seedling text-2xl text-green-600"></i>
+                             <div>
+                               <h4 class="font-medium text-gray-800">${crop}</h4>
+                               <p class="text-xs text-gray-500">Good for ${data.predicted_class}</p>
+                             </div>`;
+            cropsContainer.appendChild(div);
+          });
+        } else {
+          cropsContainer.innerHTML = "<div class='text-gray-500'>No recommendations available for this soil type.</div>";
+        }
+      } catch (err) {
+        loadingSection.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        alert('Error: ' + err.message);
+      }
+    };
+
+    // Reset All
+    resetBtn.onclick = () => {
+      fileInput.value = '';
+      imagePreview.src = '';
+      imagePreview.classList.add('hidden');
+      if (stream) { stream.getTracks().forEach(t => t.stop()); }
+      camera.classList.add('hidden');
+      startCameraBtn.disabled = false;
+      captureBtn.disabled = true;
+      analyzeBtn.disabled = true;
+      hasImage = false;
+      loadingSection.classList.add('hidden');
+      resultSection.classList.add('hidden');
+      emptyState.classList.remove('hidden');
+      document.getElementById("fertilizerInfo")?.remove();
+      document.getElementById("soilContentInfo")?.remove();
+    };
+
+    // On page load, reset all
+    resetBtn.onclick();
+  </script>
+</body>
+</html>
